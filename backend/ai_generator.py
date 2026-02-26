@@ -88,7 +88,47 @@ Provide only the direct answer to what was asked.
         if response.choices[0].finish_reason == "tool_calls" and tool_manager:
             return self._handle_tool_execution(message, messages, tool_manager)
 
+        # DeepSeek sometimes emits DSML tool markup in content instead of proper tool_calls
+        if tool_manager and message.content and '<\uFF5CDSML\uFF5C' in message.content:
+            return self._handle_dsml_tool_execution(message.content, messages, tool_manager)
+
         return message.content
+
+    def _handle_dsml_tool_execution(self, content: str, messages: List, tool_manager) -> str:
+        """
+        Parse and execute DeepSeek DSML-format tool calls found in message content.
+        Called when finish_reason != 'tool_calls' but content contains <｜DSML｜...> markup.
+        """
+        import re
+
+        # Extract tool name from <｜DSML｜invoke name="...">
+        invoke_match = re.search(r'<\uFF5CDSML\uFF5Cinvoke name="([^"]+)">', content)
+        if not invoke_match:
+            return content  # Can't parse — return raw content as fallback
+
+        tool_name = invoke_match.group(1)
+
+        # Extract parameters from <｜DSML｜parameter name="..." ...>VALUE</｜DSML｜parameter>
+        kwargs = {}
+        for m in re.finditer(
+            r'<\uFF5CDSML\uFF5Cparameter name="([^"]+)"[^>]*>(.*?)</\uFF5CDSML\uFF5Cparameter>',
+            content, re.DOTALL
+        ):
+            name, value = m.group(1), m.group(2).strip()
+            # Preserve integer type for numeric parameters (e.g. lesson_number)
+            kwargs[name] = int(value) if value.lstrip('-').isdigit() else value
+
+        # Execute tool (also populates last_sources via tool_manager)
+        tool_result = tool_manager.execute_tool(tool_name, **kwargs)
+
+        # Build message history for follow-up call
+        messages.append({"role": "assistant", "content": content})
+        messages.append({"role": "user", "content": tool_result})
+
+        final_response = self.client.chat.completions.create(
+            **{**self.base_params, "messages": messages}
+        )
+        return final_response.choices[0].message.content
 
     def _handle_tool_execution(self, assistant_message, messages: List, tool_manager):
         """
