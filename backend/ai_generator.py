@@ -1,33 +1,35 @@
 import json
+import re
 from openai import OpenAI
 from typing import List, Optional, Dict, Any
+
+# Matches both DSML pipe variants DeepSeek uses for inline tool calls:
+#   <｜DSML｜...>  (U+FF5C fullwidth vertical line)
+#   < | DSML | ...>  (ASCII pipe with optional surrounding spaces)
+_DSML_SEP = r'[｜|]\s*'
+_DSML_RE = re.compile(r'<\s*' + _DSML_SEP + r'DSML\s*' + _DSML_SEP)
 
 class AIGenerator:
     """Handles interactions with DeepSeek API for generating responses"""
 
     # Static system prompt to avoid rebuilding on each call
-    SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to a comprehensive search tool for course information.
+    SYSTEM_PROMPT = """You are an AI assistant for a course materials database. You have access to a search tool that queries the actual course content.
 
-Search Tool Usage:
-- Use the search tool **only** for questions about specific course content or detailed educational materials
+Search Tool Usage — ALWAYS search first for any of these:
+- Questions about which courses exist or cover a specific topic (e.g. "Are there courses about RAG?", "Which courses cover chatbots?")
+- Questions about what a course contains, its outline, or its lessons
+- Questions about specific lesson content, instructors, or course details
+- Any question where the answer depends on what is actually in this course database
+
+Do NOT search for:
+- Pure definitional or conceptual questions with no course context (e.g. "What is Python?")
 - **One search per query maximum**
-- Synthesize search results into accurate, fact-based responses
-- If search yields no results, state this clearly without offering alternatives
+- If search yields no results, say so clearly
 
-Response Protocol:
-- **General knowledge questions**: Answer using existing knowledge without searching
-- **Course-specific questions**: Search first, then answer
-- **No meta-commentary**:
- - Provide direct answers only — no reasoning process, search explanations, or question-type analysis
- - Do not mention "based on the search results"
-
-
-All responses must be:
-1. **Brief, Concise and focused** - Get to the point quickly
-2. **Educational** - Maintain instructional value
-3. **Clear** - Use accessible language
-4. **Example-supported** - Include relevant examples when they aid understanding
-Provide only the direct answer to what was asked.
+Response rules:
+- Answer directly — no meta-commentary, no mention of "search results" or "based on the results"
+- Be brief, concise, and educational
+- Include examples when they aid understanding
 """
 
     def __init__(self, api_key: str, model: str):
@@ -88,8 +90,11 @@ Provide only the direct answer to what was asked.
         if response.choices[0].finish_reason == "tool_calls" and tool_manager:
             return self._handle_tool_execution(message, messages, tool_manager)
 
-        # DeepSeek sometimes emits DSML tool markup in content instead of proper tool_calls
-        if tool_manager and message.content and '<\uFF5CDSML\uFF5C' in message.content:
+        # DeepSeek sometimes emits DSML tool markup in content instead of proper tool_calls.
+        # Two known format variants:
+        #   <｜DSML｜invoke ...>  (U+FF5C fullwidth vertical line, no spaces)
+        #   < | DSML | invoke ...>  (ASCII pipe with surrounding spaces)
+        if tool_manager and message.content and _DSML_RE.search(message.content):
             return self._handle_dsml_tool_execution(message.content, messages, tool_manager)
 
         return message.content
@@ -97,21 +102,25 @@ Provide only the direct answer to what was asked.
     def _handle_dsml_tool_execution(self, content: str, messages: List, tool_manager) -> str:
         """
         Parse and execute DeepSeek DSML-format tool calls found in message content.
-        Called when finish_reason != 'tool_calls' but content contains <｜DSML｜...> markup.
+        Called when finish_reason != 'tool_calls' but content contains DSML markup.
+        Handles both format variants (fullwidth U+FF5C pipe and ASCII pipe with spaces).
         """
-        import re
-
-        # Extract tool name from <｜DSML｜invoke name="...">
-        invoke_match = re.search(r'<\uFF5CDSML\uFF5Cinvoke name="([^"]+)">', content)
+        # Extract tool name — matches both <｜DSML｜invoke name="..."> and < | DSML | invoke name="...">
+        invoke_match = re.search(
+            r'<\s*' + _DSML_SEP + r'DSML\s*' + _DSML_SEP + r'invoke\s+name="([^"]+)"',
+            content
+        )
         if not invoke_match:
             return content  # Can't parse — return raw content as fallback
 
         tool_name = invoke_match.group(1)
 
-        # Extract parameters from <｜DSML｜parameter name="..." ...>VALUE</｜DSML｜parameter>
+        # Extract parameters — matches both pipe variants
         kwargs = {}
         for m in re.finditer(
-            r'<\uFF5CDSML\uFF5Cparameter name="([^"]+)"[^>]*>(.*?)</\uFF5CDSML\uFF5Cparameter>',
+            r'<\s*' + _DSML_SEP + r'DSML\s*' + _DSML_SEP + r'parameter\s+name="([^"]+)"[^>]*>'
+            r'(.*?)'
+            r'</\s*' + _DSML_SEP + r'DSML\s*' + _DSML_SEP + r'parameter>',
             content, re.DOTALL
         ):
             name, value = m.group(1), m.group(2).strip()
