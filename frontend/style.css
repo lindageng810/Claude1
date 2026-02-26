@@ -9,7 +9,7 @@
 :root {
     --primary-color: #2563eb;
     --primary-hover: #1d4ed8;
-    --background: #0f172a;
+    --background: #07101e;
     --surface: #1e293b;
     --surface-hover: #334155;
     --text-primary: #f1f5f9;
@@ -78,8 +78,9 @@ header h1 {
 /* Left Sidebar */
 .sidebar {
     width: 320px;
-    background: var(--surface);
-    border-right: 1px solid var(--border-color);
+    background: linear-gradient(180deg, #0d2050 0%, #091632 100%);
+    border-right: 1px solid #1e4aad;
+    box-shadow: 2px 0 16px rgba(30, 74, 173, 0.18);
     padding: 1.5rem;
     overflow-y: auto;
     flex-shrink: 0;
@@ -484,6 +485,19 @@ header h1 {
     margin: 0.5rem 0;
 }
 
+/* Sidebar Logo */
+.sidebar-logo {
+    margin-bottom: 1.75rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.logo-img {
+    display: block;
+    width: 160px;
+    height: auto;
+}
+
 /* New Chat Button */
 .new-chat-button {
     font-size: 0.875rem;
@@ -491,9 +505,11 @@ header h1 {
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0.5rem 0;
-    border: none;
+    border: 0;
     background: none;
     outline: none;
+    -webkit-appearance: none;
+    appearance: none;
     transition: color 0.2s ease;
     text-transform: uppercase;
     letter-spacing: 0.5px;

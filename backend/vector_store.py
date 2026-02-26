@@ -246,6 +246,48 @@ class VectorStore:
             print(f"Error getting course link: {e}")
             return None
     
+    def get_course_outline(self, course_name: str) -> Optional[Dict[str, Any]]:
+        """Return the structured outline for a course, with fuzzy name resolution.
+
+        Resolves the caller-supplied course name to the canonical stored title via
+        _resolve_course_name() (a vector-similarity query against course_catalog),
+        then fetches the full catalog entry by its exact ID.
+
+        Args:
+            course_name: Full or partial course title supplied by the user or AI.
+
+        Returns:
+            Dict with keys:
+                'title'       – canonical course title (str)
+                'course_link' – course URL or None if not stored
+                'lessons'     – list of dicts, each with:
+                                  'lesson_number' (int)
+                                  'lesson_title'  (str)
+                                  'lesson_link'   (str | None)
+            Returns None if no matching course is found or on error.
+        """
+        import json
+        # Step 1: fuzzy-resolve the user-supplied name to the stored canonical title
+        course_title = self._resolve_course_name(course_name)
+        if not course_title:
+            return None
+        try:
+            # Step 2: fetch the full catalog entry by its ID (title == ID)
+            results = self.course_catalog.get(ids=[course_title])
+            if results and 'metadatas' in results and results['metadatas']:
+                metadata = results['metadatas'][0]
+                # Lessons are stored as a JSON string to work around ChromaDB's
+                # restriction that metadata values must be scalar types.
+                lessons = json.loads(metadata['lessons_json']) if 'lessons_json' in metadata else []
+                return {
+                    'title': metadata.get('title', course_title),
+                    'course_link': metadata.get('course_link'),
+                    'lessons': lessons
+                }
+        except Exception as e:
+            print(f"Error getting course outline: {e}")
+        return None
+
     def get_lesson_link(self, course_title: str, lesson_number: int) -> Optional[str]:
         """Get lesson link for a given course title and lesson number"""
         import json

@@ -4,7 +4,7 @@ from document_processor import DocumentProcessor
 from vector_store import VectorStore
 from ai_generator import AIGenerator
 from session_manager import SessionManager
-from search_tools import ToolManager, CourseSearchTool
+from search_tools import ToolManager, CourseSearchTool, CourseOutlineTool
 from models import Course, Lesson, CourseChunk
 
 class RAGSystem:
@@ -19,10 +19,21 @@ class RAGSystem:
         self.ai_generator = AIGenerator(config.DEEPSEEK_API_KEY, config.DEEPSEEK_MODEL)
         self.session_manager = SessionManager(config.MAX_HISTORY)
         
-        # Initialize search tools
+        # Register tools with the ToolManager.
+        # ToolManager serialises these into the OpenAI tool-calling format and
+        # passes them to the DeepSeek API on every query.
+        #
+        # Tool routing (decided by the AI based on the system prompt):
+        #   search_course_content – semantic search over chunked lesson text;
+        #                           used for topic / content questions.
+        #   get_course_outline    – structured lookup of course title, link, and
+        #                           full lesson list from course_catalog metadata;
+        #                           used for outline / structure questions.
         self.tool_manager = ToolManager()
         self.search_tool = CourseSearchTool(self.vector_store)
         self.tool_manager.register_tool(self.search_tool)
+        self.outline_tool = CourseOutlineTool(self.vector_store)
+        self.tool_manager.register_tool(self.outline_tool)
     
     def add_course_document(self, file_path: str) -> Tuple[Course, int]:
         """

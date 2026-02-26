@@ -124,6 +124,88 @@ class CourseSearchTool(Tool):
         
         return "\n\n".join(formatted)
 
+class CourseOutlineTool(Tool):
+    """Tool for retrieving the structured outline of a course.
+
+    Uses VectorStore.get_course_outline() which performs fuzzy vector-based
+    course name resolution before fetching the catalog entry, so partial or
+    approximate course names (e.g. "MCP", "retrieval") work correctly.
+
+    The formatted tool result is returned to the AI as the tool message content.
+    Course title and link are pre-formatted as a markdown hyperlink so the AI
+    is more likely to preserve the clickable link in its final response.
+
+    last_sources is populated after every successful execute() call so that
+    ToolManager.get_last_sources() can surface a clickable source chip in the
+    frontend (see script.js addMessage).
+    """
+
+    def __init__(self, vector_store: VectorStore):
+        self.store = vector_store
+        self.last_sources = []  # Populated by execute(); read by ToolManager
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        """Return OpenAI-compatible function definition for this tool."""
+        return {
+            "type": "function",
+            "function": {
+                "name": "get_course_outline",
+                "description": (
+                    "Get the full outline of a course: title, course link, and "
+                    "complete lesson list (number + title for each lesson). "
+                    "Use this for any question about a course's structure, outline, "
+                    "or lesson list — do NOT use search_course_content for these."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "course_name": {
+                            "type": "string",
+                            "description": (
+                                "Course title to look up. Partial matches work, "
+                                "e.g. 'MCP', 'Chroma', 'retrieval'."
+                            )
+                        }
+                    },
+                    "required": ["course_name"]
+                }
+            }
+        }
+
+    def execute(self, course_name: str) -> str:
+        """Fetch course outline and format it for the AI.
+
+        Args:
+            course_name: Full or partial course title.
+
+        Returns:
+            Markdown-formatted string with course title (as hyperlink if a URL
+            exists), followed by a numbered lesson list.  Returns an error
+            string if no matching course is found.
+        """
+        outline = self.store.get_course_outline(course_name)
+        if outline is None:
+            return f"No course found matching '{course_name}'."
+
+        # Format course title as a markdown hyperlink so the AI preserves the
+        # URL in its response instead of silently dropping it.
+        course_link = outline.get('course_link')
+        if course_link:
+            lines = [f"Course: [{outline['title']}]({course_link})"]
+        else:
+            lines = [f"Course: {outline['title']}"]
+
+        lines.append("")
+        lines.append("Lessons:")
+        for lesson in outline.get('lessons', []):
+            lines.append(f"  Lesson {lesson['lesson_number']}: {lesson['lesson_title']}")
+
+        # Expose the course as a source chip in the frontend UI
+        self.last_sources = [{"label": outline['title'], "url": course_link}]
+
+        return "\n".join(lines)
+
+
 class ToolManager:
     """Manages available tools for the AI"""
     
