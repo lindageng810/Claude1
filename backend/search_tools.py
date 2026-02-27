@@ -172,17 +172,24 @@ class CourseOutlineTool(Tool):
             }
         }
 
-    def execute(self, course_name: str) -> str:
+    def execute(self, course_name: str = None, course_title: str = None) -> str:
         """Fetch course outline and format it for the AI.
 
         Args:
             course_name: Full or partial course title.
+            course_title: Alias for course_name — DeepSeek DSML sometimes uses
+                          this name instead of course_name.
 
         Returns:
             Markdown-formatted string with course title (as hyperlink if a URL
             exists), followed by a numbered lesson list.  Returns an error
             string if no matching course is found.
         """
+        # Accept course_title as an alias (DeepSeek DSML uses this variant)
+        resolved_name = course_name or course_title
+        if not resolved_name:
+            return "Error: course_name parameter is required."
+        course_name = resolved_name
         outline = self.store.get_course_outline(course_name)
         if outline is None:
             return f"No course found matching '{course_name}'."
