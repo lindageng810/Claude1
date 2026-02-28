@@ -119,8 +119,17 @@ class CourseSearchTool(Tool):
             
             formatted.append(f"{header}\n{doc}")
         
+        # Deduplicate sources (multiple chunks may share the same course+lesson)
+        seen = set()
+        unique_sources = []
+        for s in sources:
+            key = (s["label"], s["url"])
+            if key not in seen:
+                seen.add(key)
+                unique_sources.append(s)
+
         # Store sources for retrieval
-        self.last_sources = sources
+        self.last_sources = unique_sources
         
         return "\n\n".join(formatted)
 

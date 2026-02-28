@@ -99,20 +99,33 @@ class VectorStore:
         except Exception as e:
             return SearchResults.empty(f"Search error: {str(e)}")
     
+    # Maximum L2 distance to accept a fuzzy course-name match.
+    # all-MiniLM-L6-v2 produces normalised vectors; L2 distance ∈ [0, 2].
+    # Distances below 1.0 indicate a plausible match; above that the name is
+    # likely unrelated and should not be silently resolved.
+    _COURSE_MATCH_THRESHOLD = 1.0
+
     def _resolve_course_name(self, course_name: str) -> Optional[str]:
-        """Use vector search to find best matching course by name"""
+        """Use vector search to find best matching course by name.
+
+        Returns None when the best match exceeds _COURSE_MATCH_THRESHOLD so
+        that unrecognised names are not silently mapped to an unrelated course.
+        """
         try:
             results = self.course_catalog.query(
                 query_texts=[course_name],
-                n_results=1
+                n_results=1,
+                include=["metadatas", "distances"],
             )
-            
-            if results['documents'][0] and results['metadatas'][0]:
-                # Return the title (which is now the ID)
+
+            if results['metadatas'][0] and results['distances'][0]:
+                distance = results['distances'][0][0]
+                if distance > self._COURSE_MATCH_THRESHOLD:
+                    return None
                 return results['metadatas'][0][0]['title']
         except Exception as e:
             print(f"Error resolving course name: {e}")
-        
+
         return None
     
     def _build_filter(self, course_title: Optional[str], lesson_number: Optional[int]) -> Optional[Dict]:
